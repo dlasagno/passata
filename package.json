@@ -19,6 +19,10 @@
   },
   "files": ["dist"],
   "scripts": {
+    "build": "tsdown",
+    "playground:dev": "pnpm --dir playground dev",
+    "playground:build": "pnpm --dir playground build",
+    "playground:preview": "pnpm --dir playground preview",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
