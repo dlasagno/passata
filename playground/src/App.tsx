@@ -31,16 +31,11 @@ const table = createTable(sorting(), pagination({ initialPageSize: 5 }));
 export function App() {
   const columns = useMemo(
     () =>
-      table.defineColumns<Person>([
-        { key: "name", header: "Name", sortable: true },
-        { key: "age", header: "Age", sortable: true },
-        { key: "city", header: "City", sortable: true },
-        {
-          key: "score",
-          header: "Score",
-          sortable: true,
-          cell: (value) => <strong>{String(value)}</strong>,
-        },
+      table.defineColumns<Person>(({ accessor }) => [
+        accessor("name", { header: "Name", sortable: true }),
+        accessor("age", { header: "Age", sortable: true }),
+        accessor("city", { header: "City", sortable: true }),
+        accessor("score", { header: "Score", sortable: true, cell: (value) => <strong>{String(value)}</strong> }),
       ]),
     [],
   );

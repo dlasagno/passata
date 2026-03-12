@@ -10,6 +10,7 @@ import type {
   Row,
   TableMiddleware,
 } from "./types";
+import { createColumnHelpers } from "./column-helper";
 
 type MiddlewareUpdater<TState extends MiddlewareState> =
   | Partial<TState>
@@ -57,8 +58,16 @@ export function createTable<const TMiddlewares extends readonly unknown[]>(
   };
 
   return {
-    defineColumns<TData>(columns: (BaseColumnDef<TData> & ColumnExt)[]) {
-      return columns;
+    defineColumns<TData>(
+      columns: (
+        helpers: ReturnType<
+          typeof createColumnHelpers<TData, BaseColumnDef<TData> & ColumnExt>
+        >,
+      ) => (BaseColumnDef<TData> & ColumnExt)[],
+    ) {
+      return columns(
+        createColumnHelpers<TData, BaseColumnDef<TData> & ColumnExt>(),
+      );
     },
     useTable<TData>(options: {
       data: TData[];
