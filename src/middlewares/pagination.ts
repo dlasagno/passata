@@ -21,8 +21,7 @@ type PaginationApi = {
 export function pagination(options?: {
   initialPageSize?: number;
 }): TableMiddleware<
-  Record<string, unknown>,
-  Record<string, unknown>,
+  Record<never, never>,
   PaginationState,
   PaginationApi
 > {

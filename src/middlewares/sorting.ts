@@ -1,10 +1,18 @@
 import type { TableMiddleware } from "../types";
 
 type SortDirection = "asc" | "desc";
+type SortableValue =
+  | string
+  | number
+  | bigint
+  | boolean
+  | Date
+  | null
+  | undefined;
 
 type SortingColumnExt = {
   sortable?: boolean;
-  sortFn?: (a: unknown, b: unknown) => number;
+  sortFn?: (a: SortableValue, b: SortableValue) => number;
 };
 
 type SortingState = {
@@ -17,11 +25,16 @@ type SortingApi = {
   clearSort: () => void;
 };
 
+type SortingHeaderProps = {
+  isSorted: boolean;
+  sortDirection: SortDirection | null;
+};
+
 export function sorting(): TableMiddleware<
-  Record<string, unknown>,
   SortingColumnExt,
   SortingState,
-  SortingApi
+  SortingApi,
+  SortingHeaderProps
 > {
   return {
     id: "sorting",
@@ -46,8 +59,8 @@ export function sorting(): TableMiddleware<
         const bVal = (b.original as Record<string, unknown>)[key];
 
         const result = column.sortFn
-          ? column.sortFn(aVal, bVal)
-          : defaultSort(aVal, bVal);
+          ? column.sortFn(aVal as SortableValue, bVal as SortableValue)
+          : defaultSort(aVal as SortableValue, bVal as SortableValue);
 
         return state.sortDirection === "asc" ? result : -result;
       });
@@ -56,7 +69,13 @@ export function sorting(): TableMiddleware<
     },
 
     headerProps(column, state) {
-      if (column.sortable === false) return {};
+      if (column.sortable === false) {
+        return {
+          isSorted: false,
+          sortDirection: null,
+        };
+      }
+
       return {
         isSorted: state.sortKey === column.key,
         sortDirection:
@@ -64,9 +83,12 @@ export function sorting(): TableMiddleware<
       };
     },
 
-    api(_state, setState) {
+    api(_state, setState, context) {
       return {
         toggleSort(key: string) {
+          const selectedColumn = context.columns.find((column) => column.key === key);
+          if (!selectedColumn || selectedColumn.sortable === false) return;
+
           setState((prev) => ({
             sortKey: key,
             sortDirection:

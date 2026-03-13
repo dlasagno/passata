@@ -1,7 +1,6 @@
 import { useMemo } from "react";
 
-import { createTable } from "../../src";
-import { pagination, sorting } from "../../src/middlewares";
+import { createTable, pagination, sorting } from "../../src";
 
 type Person = {
   id: number;
@@ -57,11 +56,7 @@ export function App() {
           <tr>
             {tableInstance.headers.map((header) => {
               const isSorted = Boolean(header.props.isSorted);
-              const sortDirection = header.props.sortDirection as
-                | "asc"
-                | "desc"
-                | null
-                | undefined;
+              const sortDirection = header.props.sortDirection;
 
               return (
                 <th
@@ -96,6 +91,7 @@ export function App() {
             <tr key={row.original.id}>
               {columns.map((column) => {
                 const value = row.original[column.key];
+                const cellValue = value as never;
                 return (
                   <td
                     key={column.key}
@@ -105,7 +101,7 @@ export function App() {
                     }}
                   >
                     {column.cell
-                      ? column.cell(value, row.original)
+                      ? column.cell(cellValue, row.original)
                       : String(value)}
                   </td>
                 );

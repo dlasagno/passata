@@ -1,16 +1,19 @@
 import { useMemo, useReducer, useRef } from "react";
 
 import type {
-  BaseColumnDef,
+  AnyColumnDef,
+  ColumnDef,
   Header,
   MergeApis,
   MergeColumnExts,
+  MergeHeaderProps,
   MergeStates,
   MiddlewareState,
   Row,
+  RowData,
   TableMiddleware,
 } from "./types";
-import { createColumnHelpers } from "./column-helper";
+import { createDefineColumns } from "./column-helpers";
 
 type MiddlewareUpdater<TState extends MiddlewareState> =
   | Partial<TState>
@@ -21,22 +24,29 @@ type Action<TState extends MiddlewareState> = {
   payload: Partial<TState>;
 };
 
-type RowPipelineCache<TData> = {
+type RowPipelineCache<TData extends RowData, TColumnExt extends object> = {
   inputRows: Row<TData>[];
-  columnsRef: readonly BaseColumnDef<TData>[];
+  columnsRef: readonly AnyColumnDef<TData, TColumnExt>[];
   stateSlice: unknown;
   outputRows: Row<TData>[];
 };
 
-export function createTable<const TMiddlewares extends readonly unknown[]>(
+export function createTable<
+  const TMiddlewares extends readonly TableMiddleware<any, any, any, any>[]
+>(
   ...middlewares: TMiddlewares
 ) {
   type ColumnExt = MergeColumnExts<TMiddlewares>;
-  type State = MergeStates<TMiddlewares> & MiddlewareState;
+  type State = MergeStates<TMiddlewares>;
   type Api = MergeApis<TMiddlewares>;
-  type GenericColumn = BaseColumnDef<Record<string, unknown>> &
-    Record<string, unknown>;
-  const runtimeMiddlewares = middlewares as readonly TableMiddleware[];
+  type HeaderProps = MergeHeaderProps<TMiddlewares>;
+  type RuntimeMiddleware = TableMiddleware<
+    ColumnExt,
+    State,
+    Record<string, unknown>,
+    HeaderProps
+  >;
+  const runtimeMiddlewares = middlewares as readonly RuntimeMiddleware[];
   const middlewareById = new Map(
     runtimeMiddlewares.map((middleware) => [middleware.id, middleware]),
   );
@@ -58,20 +68,10 @@ export function createTable<const TMiddlewares extends readonly unknown[]>(
   };
 
   return {
-    defineColumns<TData>(
-      columns: (
-        helpers: ReturnType<
-          typeof createColumnHelpers<TData, BaseColumnDef<TData> & ColumnExt>
-        >,
-      ) => (BaseColumnDef<TData> & ColumnExt)[],
-    ) {
-      return columns(
-        createColumnHelpers<TData, BaseColumnDef<TData> & ColumnExt>(),
-      );
-    },
-    useTable<TData>(options: {
+    defineColumns: createDefineColumns<ColumnExt>(),
+    useTable<TData extends RowData>(options: {
       data: TData[];
-      columns: (BaseColumnDef<TData> & ColumnExt)[];
+      columns: readonly AnyColumnDef<TData, ColumnExt>[];
       state?: Partial<State>;
       onStateChange?: (state: State) => void;
     }) {
@@ -82,12 +82,12 @@ export function createTable<const TMiddlewares extends readonly unknown[]>(
 
       const [internalState, dispatch] = useReducer(reducer, initialState);
       const rowPipelineCacheRef = useRef(
-        new Map<string, RowPipelineCache<TData>>(),
+        new Map<string, RowPipelineCache<TData, ColumnExt>>(),
       );
       const headersCacheRef = useRef<{
-        columnsRef: (BaseColumnDef<TData> & ColumnExt)[];
+        columnsRef: readonly AnyColumnDef<TData, ColumnExt>[];
         middlewareSlices: unknown[];
-        value: Header<TData, BaseColumnDef<TData> & ColumnExt>[];
+        value: Header<TData, AnyColumnDef<TData, ColumnExt>, HeaderProps>[];
       } | null>(null);
 
       const state = useMemo<State>(
@@ -95,7 +95,7 @@ export function createTable<const TMiddlewares extends readonly unknown[]>(
         [internalState, options.state],
       );
 
-      const setState = <TMiddlewareState extends MiddlewareState>(
+      const setState = <TMiddlewareState extends State>(
         middlewareId: string,
         updater: MiddlewareUpdater<TMiddlewareState>,
       ) => {
@@ -139,11 +139,7 @@ export function createTable<const TMiddlewares extends readonly unknown[]>(
             continue;
           }
 
-          const next = processRows(
-            result as Row<Record<string, unknown>>[],
-            state,
-            columnsRef as unknown as GenericColumn[],
-          ) as Row<TData>[];
+          const next = processRows(result, state, columnsRef);
 
           rowPipelineCacheRef.current.set(mw.id, {
             inputRows: result,
@@ -157,45 +153,45 @@ export function createTable<const TMiddlewares extends readonly unknown[]>(
         return result;
       }, [baseRows, options.columns, state]);
 
-      const headers: Header<TData, BaseColumnDef<TData> & ColumnExt>[] =
-        useMemo(() => {
-          const middlewareSlices = headerMiddlewares.map(
-            (mw) => mw.getStateSlice?.(state) ?? state,
+      const headers: Header<
+        TData,
+        AnyColumnDef<TData, ColumnExt>,
+        HeaderProps
+      >[] = useMemo(() => {
+        const middlewareSlices = headerMiddlewares.map(
+          (mw) => mw.getStateSlice?.(state) ?? state,
+        );
+        const cached = headersCacheRef.current;
+        const canReuse =
+          cached &&
+          cached.columnsRef === options.columns &&
+          cached.middlewareSlices.length === middlewareSlices.length &&
+          cached.middlewareSlices.every((slice, index) =>
+            Object.is(slice, middlewareSlices[index]),
           );
-          const cached = headersCacheRef.current;
-          const canReuse =
-            cached &&
-            cached.columnsRef === options.columns &&
-            cached.middlewareSlices.length === middlewareSlices.length &&
-            cached.middlewareSlices.every((slice, index) =>
-              Object.is(slice, middlewareSlices[index]),
-            );
 
-          if (canReuse) return cached.value;
+        if (canReuse) return cached.value;
 
-          const computedHeaders = options.columns.map((column) => {
-            const props = headerMiddlewares.reduce(
-              (acc, mw) => ({
-                ...acc,
-                ...(mw.headerProps?.(
-                  column as unknown as GenericColumn,
-                  state,
-                ) ?? {}),
-              }),
-              {} as Record<string, unknown>,
-            );
+        const computedHeaders = options.columns.map((column) => {
+          const props = headerMiddlewares.reduce(
+            (acc, mw) => ({
+              ...acc,
+              ...(mw.headerProps?.(column, state) ?? {}),
+            }),
+            {} as HeaderProps,
+          );
 
-            return { column, props };
-          });
+          return { column, props };
+        });
 
-          headersCacheRef.current = {
-            columnsRef: options.columns,
-            middlewareSlices,
-            value: computedHeaders,
-          };
+        headersCacheRef.current = {
+          columnsRef: options.columns,
+          middlewareSlices,
+          value: computedHeaders,
+        };
 
-          return computedHeaders;
-        }, [options.columns, state]);
+        return computedHeaders;
+      }, [options.columns, state]);
 
       const api = runtimeMiddlewares.reduce<Api>(
         (acc, mw) => ({
@@ -204,10 +200,10 @@ export function createTable<const TMiddlewares extends readonly unknown[]>(
             state,
             (
               updater:
-                | Partial<MiddlewareState>
-                | ((prev: MiddlewareState) => Partial<MiddlewareState>),
-            ) => setState(mw.id, updater),
-            { rowCount: options.data.length },
+                | Partial<State>
+                | ((prev: State) => Partial<State>),
+            ) => setState(mw.id, updater as MiddlewareUpdater<State>),
+            { rowCount: options.data.length, columns: options.columns },
           ),
         }),
         {} as Api,
